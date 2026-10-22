@@ -466,7 +466,23 @@ struct CardEditor: View {
         }
         .padding(14)
         .frame(width: 380)
-        .onAppear { titleFocused = true }
+        .onAppear {
+            titleFocused = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { placeCaretAtEnd() }
+        }
+        .onChange(of: titleFocused) { _, focused in
+            if focused { DispatchQueue.main.async { placeCaretAtEnd() } }
+        }
+    }
+
+    /// A field selects its whole text when it takes focus; editing should start at the end of the
+    /// title instead. The field being edited is an NSTextView (the field editor) and the first
+    /// responder of the popover's window, so the caret is moved there.
+    private func placeCaretAtEnd() {
+        let editors = NSApp.windows.compactMap { $0.firstResponder as? NSTextView }
+        guard let textView = editors.first(where: { $0.window?.isKeyWindow ?? false }) ?? editors.last else { return }
+        let end = (textView.string as NSString).length
+        textView.setSelectedRange(NSRange(location: end, length: 0))
     }
 
     private func save() {
