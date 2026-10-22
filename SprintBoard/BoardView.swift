@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// One week as four columns: TO DO, IN PROGRESS, BLOCKED, DONE.
 struct BoardView: View {
@@ -6,7 +7,7 @@ struct BoardView: View {
     let week: WeekID
     let navigate: (WeekID) -> Void
 
-    @State private var editor: CardEditor.Target?
+    @State private var addingFromToolbar = false
     @State private var pendingDelete: Card?
     @State private var debugLogging = SharedStore.debugLogging
 
@@ -16,8 +17,6 @@ struct BoardView: View {
             HStack(alignment: .top, spacing: 12) {
                 ForEach(Lane.allCases) { lane in
                     LaneColumn(week: week, lane: lane, cards: board.cards(in: lane),
-                               onAdd: { editor = .new(lane) },
-                               onEdit: { editor = .edit($0) },
                                onDelete: { pendingDelete = $0 },
                                navigate: navigate)
                 }
@@ -49,16 +48,13 @@ struct BoardView: View {
                 }
             }
             ToolbarItem(placement: .primaryAction) {
-                Button { editor = .new(.todo) } label: { Label("Add card", systemImage: "plus") }
+                Button { addingFromToolbar = true } label: { Label("Add card", systemImage: "plus") }
                     .help("Add a card to To do (Cmd+N)")
-            }
-        }
-        .sheet(item: $editor) { target in
-            CardEditor(target: target) { title, jiraKey in
-                switch target {
-                case .new(let lane): store.addCard(title: title, jiraKey: jiraKey, lane: lane, in: week)
-                case .edit(let card): store.update(card.id, title: title, jiraKey: jiraKey, in: week)
-                }
+                    .popover(isPresented: $addingFromToolbar, arrowEdge: .bottom) {
+                        CardEditor(target: .new(.todo)) { title, jiraKey in
+                            store.addCard(title: title, jiraKey: jiraKey, lane: .todo, in: week)
+                        }
+                    }
             }
         }
         .alert("Delete this card?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }), presenting: pendingDelete) { card in
@@ -67,7 +63,7 @@ struct BoardView: View {
         } message: { card in
             Text(card.title)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .newCardRequested)) { _ in editor = .new(.todo) }
+        .onReceive(NotificationCenter.default.publisher(for: .newCardRequested)) { _ in addingFromToolbar = true }
         .onReceive(NotificationCenter.default.publisher(for: .debugLoggingChanged)) { _ in debugLogging = SharedStore.debugLogging }
     }
 
@@ -80,48 +76,63 @@ struct BoardView: View {
     }
 }
 
-/// One lane: a coloured column with its dark cards; a drop target for cards dragged from other lanes.
+/// One lane: a coloured column with its dark cards. Cards are dragged between and within lanes;
+/// while a drag hovers the column a white line shows where the card will land. Double-clicking a
+/// card (or Edit… in its menu) opens the editor as a popover on the card; the "+" in the header
+/// opens it for a new card.
 struct LaneColumn: View {
     @Environment(BoardStore.self) private var store
     let week: WeekID
     let lane: Lane
     let cards: [Card]
-    let onAdd: () -> Void
-    let onEdit: (Card) -> Void
     let onDelete: (Card) -> Void
     let navigate: (WeekID) -> Void
 
     @State private var targeted = false
-    @State private var headerTargeted = false
-    @State private var targetedCard: UUID?
-    @State private var heights: [UUID: CGFloat] = [:]
+    /// Card frames in the lane's coordinate space, read only while a drag hovers. A plain object,
+    /// not state or a preference: measuring must never re-render the lane.
+    @State private var frames = FrameRegistry()
+    /// Insertion index shown by the drop line while a drag hovers; `cards.count` is "after the last".
+    @State private var indicator: Int?
+    @State private var editing: UUID?
+    @State private var adding = false
+    private let session = DragSession.shared
+
+    private var space: String { "lane-\(lane.rawValue)" }
 
     var body: some View {
         VStack(spacing: 0) {
             header
-                // A drop on the header puts the card at the top of the lane.
-                .dropDestination(for: String.self) { items, _ in
-                    drop(items, placement: .start)
-                } isTargeted: { headerTargeted = $0 }
             ScrollView {
-                LazyVStack(spacing: 8) {
-                    ForEach(cards) { card in
+                VStack(spacing: 8) {
+                    ForEach(Array(cards.enumerated()), id: \.element.id) { index, card in
                         cell(card)
+                            .overlay(alignment: .top) {
+                                if session.active, indicator == index { dropLine.offset(y: -5.5) }
+                            }
+                            .overlay(alignment: .bottom) {
+                                if session.active, index == cards.count - 1, indicator == cards.count { dropLine.offset(y: 5.5) }
+                            }
                     }
+                    if session.active, cards.isEmpty, indicator != nil { dropLine }
                 }
                 .padding(10)
-                .onPreferenceChange(CardHeightKey.self) { heights.merge($0) { $1 } }
             }
             .frame(maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(lane.color.opacity(targeted ? 0.35 : 0.18))
+        .coordinateSpace(name: space)
+        .background(lane.color.opacity(session.active && targeted ? 0.3 : 0.18))
         .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(lane.color.opacity(targeted ? 0.9 : 0.35), lineWidth: 1))
-        // A drop on the lane's empty space puts the card at the bottom.
-        .dropDestination(for: String.self) { items, _ in
-            drop(items, placement: .end)
-        } isTargeted: { targeted = $0 }
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(lane.color.opacity(session.active && targeted ? 0.9 : 0.35), lineWidth: 1))
+        .onDrop(of: [.utf8PlainText, .plainText, .text], delegate: LaneDropDelegate(
+            insertionIndex: insertionIndex(at:), indicator: $indicator, targeted: $targeted,
+            dragEntered: { DragSession.shared.begin() }, perform: perform(id:at:)))
+        // Whenever a drag starts or ends, forget the hover state; the delegate sets it afresh.
+        .onChange(of: session.active) { _, _ in
+            if indicator != nil { indicator = nil }
+            if targeted { targeted = false }
+        }
     }
 
     private var header: some View {
@@ -136,38 +147,52 @@ struct LaneColumn: View {
                 .background(Color.white.opacity(0.25))
                 .clipShape(Capsule())
             Spacer()
-            Button(action: onAdd) { Image(systemName: "plus") }
+            Button { adding = true } label: { Image(systemName: "plus") }
                 .buttonStyle(.plain)
                 .help("Add a card to \(lane.shortTitle)")
+                .popover(isPresented: $adding, arrowEdge: .bottom) {
+                    CardEditor(target: .new(lane)) { title, jiraKey in
+                        store.addCard(title: title, jiraKey: jiraKey, lane: lane, in: week)
+                    }
+                }
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(lane.color.opacity(headerTargeted ? 0.7 : 1))
-        .overlay(alignment: .bottom) {
-            if headerTargeted { Rectangle().fill(.white).frame(height: 2) }
-        }
+        .background(lane.color)
+    }
+
+    private var dropLine: some View {
+        Capsule()
+            .fill(.white)
+            .frame(height: 3)
+            .shadow(color: .black.opacity(0.5), radius: 1.5)
     }
 
     @ViewBuilder
     private func cell(_ card: Card) -> some View {
         let view = CardView(card: card)
             .background(GeometryReader { geo in
-                Color.clear.preference(key: CardHeightKey.self, value: [card.id: geo.size.height])
+                let frame = geo.frame(in: .named(space))
+                Color.clear
+                    .onAppear { frames.rects[card.id] = frame }
+                    .onChange(of: frame) { _, new in frames.rects[card.id] = new }
             })
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(targetedCard == card.id ? 0.8 : 0), lineWidth: 2))
             .contextMenu { menu(card) }
-            // The upper half of a card means "before it", the lower half "after it": dragging a
-            // card up or down its own lane reorders it.
-            .dropDestination(for: String.self) { items, location in
-                let height = heights[card.id] ?? 0
-                let after = height > 0 && location.y > height / 2
-                return drop(items, placement: after ? .after(card.id) : .before(card.id))
-            } isTargeted: { targetedCard = $0 ? card.id : (targetedCard == card.id ? nil : targetedCard) }
+            .popover(isPresented: Binding(get: { editing == card.id }, set: { if !$0 { editing = nil } }), arrowEdge: .trailing) {
+                CardEditor(target: .edit(card)) { title, jiraKey in
+                    store.update(card.id, title: title, jiraKey: jiraKey, in: week)
+                }
+            }
         if card.isSpilled {
             view
         } else {
-            view.draggable(card.id.uuidString)
+            view
+                .onTapGesture(count: 2) { editing = card.id }
+                .onDrag {
+                    DragSession.shared.begin()
+                    return NSItemProvider(object: card.id.uuidString as NSString)
+                }
         }
     }
 
@@ -178,7 +203,7 @@ struct LaneColumn: View {
             Divider()
             Button("Delete", role: .destructive) { onDelete(card) }
         } else {
-            Button("Edit…") { onEdit(card) }
+            Button("Edit…") { editing = card.id }
             Menu("Move to") {
                 ForEach(Lane.allCases.filter { $0 != lane }) { other in
                     Button(other.shortTitle) { store.move(card.id, to: other, in: week) }
@@ -194,19 +219,100 @@ struct LaneColumn: View {
         }
     }
 
-    private func drop(_ items: [String], placement: Board.Placement) -> Bool {
-        guard let raw = items.first, let id = UUID(uuidString: raw) else { return false }
+    /// Where a pointer at `point` (column coordinates) would insert: before the first card whose
+    /// middle lies below it, else after the last card. Spilled cards sit at the bottom of a lane
+    /// and stay there, so the index never goes past the first of them.
+    private func insertionIndex(at point: CGPoint) -> Int {
+        let limit = cards.firstIndex { $0.isSpilled } ?? cards.count
+        for (index, card) in cards.enumerated() where index < limit {
+            if let frame = frames.rects[card.id], point.y < frame.midY { return index }
+        }
+        return limit
+    }
+
+    private func perform(id: UUID, at index: Int) {
+        let placement: Board.Placement = index < cards.count ? .before(cards[index].id) : .end
         store.move(id, to: lane, placement: placement, in: week)
+        if indicator != nil { indicator = nil }
+        if targeted { targeted = false }
+    }
+}
+
+/// Whether a card drag is in progress, for every lane at once. Switched on when a drag starts
+/// (`onDrag`, or a drag entering a lane) and off when the mouse button goes up, which is polled:
+/// macOS does not always deliver the drop delegate's exit or drop callbacks when a session ends.
+/// A lane draws its drop line and highlight only while this is on.
+@Observable
+final class DragSession {
+    static let shared = DragSession()
+    private(set) var active = false
+    @ObservationIgnored private var watcher: Timer?
+
+    func begin() {
+        if !active { active = true }
+        guard watcher == nil else { return }
+        let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
+            guard NSEvent.pressedMouseButtons & 1 == 0 else { return }
+            DispatchQueue.main.async { self?.end() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        watcher = timer
+    }
+
+    func end() {
+        watcher?.invalidate()
+        watcher = nil
+        if active { active = false }
+    }
+}
+
+/// Tracks the drag over a lane: keeps the drop line at the insertion point and moves the card on
+/// drop. The dragged item is the card's id as plain text (see `onDrag` in `LaneColumn.cell`).
+private struct LaneDropDelegate: DropDelegate {
+    let insertionIndex: (CGPoint) -> Int
+    @Binding var indicator: Int?
+    @Binding var targeted: Bool
+    let dragEntered: () -> Void
+    let perform: (UUID, Int) -> Void
+
+    func validateDrop(info: DropInfo) -> Bool { info.hasItemsConforming(to: [.text]) }
+
+    /// `dropUpdated` runs on every pointer move, several times per frame, so the state is only
+    /// written when it changes.
+    private func show(_ index: Int?, targeted on: Bool) {
+        if indicator != index { indicator = index }
+        if targeted != on { targeted = on }
+    }
+
+    func dropEntered(info: DropInfo) {
+        show(insertionIndex(info.location), targeted: true)
+        dragEntered()
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        show(insertionIndex(info.location), targeted: true)
+        return DropProposal(operation: .move)
+    }
+
+    func dropExited(info: DropInfo) {
+        show(nil, targeted: false)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        let index = insertionIndex(info.location)
+        show(nil, targeted: false)
+        guard let provider = info.itemProviders(for: [.text]).first else { return false }
+        provider.loadObject(ofClass: NSString.self) { object, _ in
+            guard let raw = object as? NSString, let id = UUID(uuidString: raw as String) else { return }
+            DispatchQueue.main.async { perform(id, index) }
+        }
         return true
     }
 }
 
-/// Card heights by id, so a drop knows whether it hit the upper or the lower half of a card.
-private struct CardHeightKey: PreferenceKey {
-    static let defaultValue: [UUID: CGFloat] = [:]
-    static func reduce(value: inout [UUID: CGFloat], nextValue: () -> [UUID: CGFloat]) {
-        value.merge(nextValue()) { $1 }
-    }
+/// Card frames by id, so the drop line and the drop know which card the pointer is above.
+private final class FrameRegistry {
+    var rects: [UUID: CGRect] = [:]
 }
 
 /// A dark card like the Boards app's: Jira key in a muted mono chip next to the title; spilled
@@ -251,7 +357,8 @@ struct CardView: View {
     }
 }
 
-/// The add/edit sheet: title and optional Jira key.
+/// The add/edit popover: title and optional Jira key. Return saves, Escape or clicking outside
+/// cancels.
 struct CardEditor: View {
     enum Target: Identifiable {
         case new(Lane)
@@ -271,6 +378,7 @@ struct CardEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var title: String
     @State private var jiraKey: String
+    @FocusState private var titleFocused: Bool
 
     init(target: Target, onSave: @escaping (String, String?) -> Void) {
         self.target = target
@@ -285,6 +393,11 @@ struct CardEditor: View {
         }
     }
 
+    private var isNew: Bool {
+        if case .new = target { return true }
+        return false
+    }
+
     private var heading: String {
         switch target {
         case .new(let lane): "New card in \(lane.shortTitle)"
@@ -295,33 +408,40 @@ struct CardEditor: View {
     private var trimmedTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(heading).font(.headline)
+        VStack(alignment: .leading, spacing: 10) {
+            Text(heading)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
             TextField("Title", text: $title, axis: .vertical)
-                .lineLimit(2...6)
-                .textFieldStyle(.roundedBorder)
+                .lineLimit(2...8)
+                .textFieldStyle(.plain)
+                .font(.system(size: 14))
+                .focused($titleFocused)
+                .onSubmit(save)
+            Divider()
             TextField("Jira key (optional), e.g. BT-985", text: $jiraKey)
-                .textFieldStyle(.roundedBorder)
-                .font(.body.monospaced())
+                .textFieldStyle(.plain)
+                .font(.system(size: 12, design: .monospaced))
+                .onSubmit(save)
+            Divider()
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button(isNew ? "Add" : "Save") {
-                    let key = jiraKey.trimmingCharacters(in: .whitespaces)
-                    onSave(trimmedTitle, key.isEmpty ? nil : key)
-                    dismiss()
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(trimmedTitle.isEmpty)
+                Button(isNew ? "Add" : "Save", action: save)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(trimmedTitle.isEmpty)
             }
         }
-        .padding(20)
-        .frame(width: 440)
+        .padding(14)
+        .frame(width: 380)
+        .onAppear { titleFocused = true }
     }
 
-    private var isNew: Bool {
-        if case .new = target { return true }
-        return false
+    private func save() {
+        guard !trimmedTitle.isEmpty else { return }
+        let key = jiraKey.trimmingCharacters(in: .whitespaces)
+        onSave(trimmedTitle, key.isEmpty ? nil : key)
+        dismiss()
     }
 }

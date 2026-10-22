@@ -56,13 +56,16 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project Spr
 - "This week" in the sidebar is always there; the tree below lists the weeks that have a file.
   The toolbar chevrons go to the previous and next week whether or not they have a file. A week
   without a file shows empty columns and is created on its first card. Cmd+T comes back to this
-  week, Cmd+N adds a card to To do, the "+" in a column header adds one to that lane.
-- Drag a card onto another column or up and down its own column: a drop on the upper half of a
-  card lands before it, on the lower half after it, on the column header at the top, on the
-  column's empty space at the bottom.
+  week, Cmd+N adds a card to To do.
+- Drag a card onto another column or up and down its own column to reorder it; a white line
+  between the cards shows where it will land while you drag.
+- Double-click a card (or right-click → Edit…) to edit its title and Jira key in a popover on the
+  card; Return saves, Escape or a click elsewhere cancels. The "+" in a column header opens the
+  same popover for a new card.
 - "Spill over to next week" keeps the card in its lane, struck through with "moved to Week k ·
   Qn year" under it, and puts a copy in the same lane of next week (file and folders created if
-  missing). A spilled card can only be deleted, or followed with "Go to Week …".
+  missing). A spilled card sinks to the bottom of its lane and can only be deleted, or followed
+  with "Go to Week …".
 - Closing the window quits the app. Every change rewrites the week file atomically and reloads the
   widget.
 
@@ -169,7 +172,7 @@ it starts on a card and when the work is merged, and the board on your desktop f
   `WeekRule.swift`, `SharedStore.swift` (the widget snapshot and the debug-logging setting).
 - `SprintBoard/` the app: `BoardStore.swift` (week files, atomic writes, mirroring, spill-over,
   import), `BoardsImporter.swift`, `ContentView.swift` (sidebar, URL scheme), `BoardView.swift`
-  (columns, cards, drag and drop, editor), `SprintBoardApp.swift` (menus, Settings, quit on close).
+  (columns, cards, drag and drop with the drop line, popover editor), `SprintBoardApp.swift` (menus, Settings, quit on close).
 - `SprintBoardWidget/` the widget. `Scripts/` the shell scripts and the icon renderer.
 - `project.yml` is the XcodeGen source of `SprintBoard.xcodeproj`; after editing it run
   `xcodegen generate`.

@@ -112,7 +112,8 @@ struct Board: Codable, Hashable {
         normalize()
     }
 
-    /// Every lane present once, in order; each card's `lane` field matches the lane it sits in.
+    /// Every lane present once, in order; each card's `lane` field matches the lane it sits in;
+    /// spilled cards sink to the bottom of their lane, in their own order.
     mutating func normalize() {
         var byLane: [Lane: [Card]] = [:]
         for group in lanes {
@@ -121,7 +122,10 @@ struct Board: Codable, Hashable {
                 byLane[group.lane, default: []].append(card)
             }
         }
-        lanes = Lane.allCases.map { LaneCards(lane: $0, cards: byLane[$0] ?? []) }
+        lanes = Lane.allCases.map { lane in
+            let cards = byLane[lane] ?? []
+            return LaneCards(lane: lane, cards: cards.filter { !$0.isSpilled } + cards.filter(\.isSpilled))
+        }
     }
 
     func cards(in lane: Lane) -> [Card] { lanes.first { $0.lane == lane }?.cards ?? [] }
