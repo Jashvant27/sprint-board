@@ -211,13 +211,15 @@ struct LaneColumn: View {
                     store.update(card.id, title: title, jiraKey: jiraKey, in: week)
                 }
             }
+        // Selection is a simultaneous gesture, so it fires on the click itself instead of waiting
+        // for the double-click interval to rule out a double click.
         if card.isSpilled {
             view
-                .onTapGesture { onSelect(card.id) }
+                .simultaneousGesture(TapGesture().onEnded { onSelect(card.id) })
         } else {
             view
                 .onTapGesture(count: 2) { editing = card.id }
-                .onTapGesture { onSelect(card.id) }
+                .simultaneousGesture(TapGesture().onEnded { onSelect(card.id) })
                 .onDrag {
                     DragSession.shared.begin()
                     return NSItemProvider(object: card.id.uuidString as NSString)
