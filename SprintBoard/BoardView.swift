@@ -10,6 +10,9 @@ struct BoardView: View {
     @State private var addingFromToolbar = false
     @State private var pendingDelete: Card?
     @State private var debugLogging = SharedStore.debugLogging
+    /// The clicked card: white border; Delete asks to delete it, Escape deselects.
+    @State private var selected: UUID?
+    @FocusState private var boardFocused: Bool
 
     var body: some View {
         let board = store.board(for: week)
@@ -17,11 +20,25 @@ struct BoardView: View {
             HStack(alignment: .top, spacing: 12) {
                 ForEach(Lane.allCases) { lane in
                     LaneColumn(week: week, lane: lane, cards: board.cards(in: lane),
+                               selected: $selected,
+                               onSelect: { selected = $0; boardFocused = true },
                                onDelete: { pendingDelete = $0 },
                                navigate: navigate)
                 }
             }
             .padding(16)
+            // Every change of the board (a move, a reorder, add, delete, spill, also from the
+            // scripts) animates: cards slide to their new place, appear and disappear softly.
+            .animation(.snappy(duration: 0.35), value: board)
+            // Keyboard: the board takes focus when a card is clicked, so Delete and Escape reach
+            // it; a focused text field (the editor popover) keeps those keys for itself.
+            .focusable()
+            .focusEffectDisabled()
+            .focused($boardFocused)
+            .onDeleteCommand {
+                if let id = selected, let card = board.card(id: id) { pendingDelete = card }
+            }
+            .onExitCommand { selected = nil }
             if debugLogging {
                 Divider()
                 Text("\(SharedStore.abbreviated(store.url(for: week).path)) · \(store.hasFile(week) ? "exists" : "not created yet") · snapshot \(SharedStore.diagnostics)" + (store.lastError.map { " · \($0)" } ?? ""))
@@ -58,11 +75,15 @@ struct BoardView: View {
             }
         }
         .alert("Delete this card?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }), presenting: pendingDelete) { card in
-            Button("Delete", role: .destructive) { store.delete(card.id, in: week) }
+            Button("Delete", role: .destructive) {
+                store.delete(card.id, in: week)
+                if selected == card.id { selected = nil }
+            }
             Button("Cancel", role: .cancel) {}
         } message: { card in
             Text(card.title)
         }
+        .onChange(of: week) { _, _ in selected = nil }
         .onReceive(NotificationCenter.default.publisher(for: .newCardRequested)) { _ in addingFromToolbar = true }
         .onReceive(NotificationCenter.default.publisher(for: .debugLoggingChanged)) { _ in debugLogging = SharedStore.debugLogging }
     }
@@ -85,6 +106,8 @@ struct LaneColumn: View {
     let week: WeekID
     let lane: Lane
     let cards: [Card]
+    @Binding var selected: UUID?
+    let onSelect: (UUID) -> Void
     let onDelete: (Card) -> Void
     let navigate: (WeekID) -> Void
 
@@ -121,6 +144,9 @@ struct LaneColumn: View {
             .frame(maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // A click on the lane outside a card deselects (the card's own tap gesture wins inside).
+        .contentShape(Rectangle())
+        .onTapGesture { selected = nil }
         .coordinateSpace(name: space)
         .background(lane.color.opacity(session.active && targeted ? 0.3 : 0.18))
         .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -171,7 +197,8 @@ struct LaneColumn: View {
 
     @ViewBuilder
     private func cell(_ card: Card) -> some View {
-        let view = CardView(card: card)
+        let view = CardView(card: card, selected: selected == card.id)
+            .transition(.scale(scale: 0.92).combined(with: .opacity))
             .background(GeometryReader { geo in
                 let frame = geo.frame(in: .named(space))
                 Color.clear
@@ -186,9 +213,11 @@ struct LaneColumn: View {
             }
         if card.isSpilled {
             view
+                .onTapGesture { onSelect(card.id) }
         } else {
             view
                 .onTapGesture(count: 2) { editing = card.id }
+                .onTapGesture { onSelect(card.id) }
                 .onDrag {
                     DragSession.shared.begin()
                     return NSItemProvider(object: card.id.uuidString as NSString)
@@ -319,6 +348,7 @@ private final class FrameRegistry {
 /// cards are struck through with "moved to Week k · Qn year" underneath.
 struct CardView: View {
     let card: Card
+    var selected = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -353,6 +383,7 @@ struct CardView: View {
         .padding(.vertical, 8)
         .background(Color(red: 0.17, green: 0.18, blue: 0.20))
         .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white, lineWidth: selected ? 2 : 0))
         .contentShape(RoundedRectangle(cornerRadius: 8))
     }
 }

@@ -58,10 +58,12 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project Spr
   without a file shows empty columns and is created on its first card. Cmd+T comes back to this
   week, Cmd+N adds a card to To do.
 - Drag a card onto another column or up and down its own column to reorder it; a white line
-  between the cards shows where it will land while you drag.
-- Double-click a card (or right-click → Edit…) to edit its title and Jira key in a popover on the
-  card; Return saves, Escape or a click elsewhere cancels. The "+" in a column header opens the
-  same popover for a new card.
+  between the cards shows where it will land while you drag. Every change animates, so you see
+  cards slide to their new place, also when a script moves them.
+- Click a card to select it (white border); Delete asks to delete it, Escape or a click on empty
+  lane space deselects. Double-click a card (or right-click → Edit…) to edit its title and Jira
+  key in a popover on the card; Return saves, Escape or a click elsewhere cancels. The "+" in a
+  column header opens the same popover for a new card.
 - "Spill over to next week" keeps the card in its lane, struck through with "moved to Week k ·
   Qn year" under it, and puts a copy in the same lane of next week (file and folders created if
   missing). A spilled card sinks to the bottom of its lane and can only be deleted, or followed
