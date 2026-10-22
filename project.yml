@@ -1,0 +1,73 @@
+name: SprintBoard
+options:
+  bundleIdPrefix: com.jashvantsewmangal
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    DEVELOPMENT_TEAM: R9KR5T3WZB
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.9"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    ENABLE_HARDENED_RUNTIME: YES
+targets:
+  SprintBoard:
+    type: application
+    platform: macOS
+    sources:
+      - SprintBoard
+      - Shared
+    dependencies:
+      - target: SprintBoardWidget
+    entitlements:
+      path: SprintBoard/SprintBoard.entitlements
+      properties:
+        # Not sandboxed: the app reads and writes ~/Documents/Sprint Boards directly.
+        # The App Group is for the snapshot the widget reads (widgets must be sandboxed).
+        com.apple.security.application-groups:
+          - R9KR5T3WZB.com.jashvantsewmangal.sprintboard
+    info:
+      path: SprintBoard/Info.plist
+      properties:
+        CFBundleDisplayName: Sprint Board
+        CFBundleName: Sprint Board
+        LSMinimumSystemVersion: "14.0"
+        NSHumanReadableCopyright: ""
+        CFBundleURLTypes:
+          - CFBundleURLName: com.jashvantsewmangal.sprintboard
+            CFBundleURLSchemes:
+              - sprintboard
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jashvantsewmangal.sprintboard
+        PRODUCT_NAME: Sprint Board
+  SprintBoardWidget:
+    type: app-extension
+    platform: macOS
+    sources:
+      - SprintBoardWidget
+      - Shared
+    entitlements:
+      path: SprintBoardWidget/SprintBoardWidget.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.application-groups:
+          - R9KR5T3WZB.com.jashvantsewmangal.sprintboard
+    info:
+      path: SprintBoardWidget/Info.plist
+      properties:
+        CFBundleDisplayName: Sprint Board
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jashvantsewmangal.sprintboard.widget
+        SKIP_INSTALL: YES
+schemes:
+  SprintBoard:
+    build:
+      targets:
+        SprintBoard: all
+    run:
+      config: Debug

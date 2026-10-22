@@ -1,0 +1,8 @@
+.DS_Store
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+# Local design references (a screenshot of a real board and a third-party icon image) stay out.
+Design/*
+!Design/icon-preview.png
