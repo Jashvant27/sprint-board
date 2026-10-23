@@ -7,7 +7,8 @@ struct SprintBoardApp: App {
     @State private var store = BoardStore()
 
     var body: some Scene {
-        WindowGroup {
+        // One window: a URL from the widget or a script lands in it instead of opening another.
+        Window("Sprint Board", id: "main") {
             ContentView()
                 .environment(store)
         }
@@ -62,7 +63,20 @@ extension Notification.Name {
     static let importRequested = Notification.Name("importRequested")
 }
 
-/// Closing the window quits the app, like the system widgets' companion apps.
+/// Closing the window quits the app, like the system widgets' companion apps. Reopening it (dock
+/// icon, a URL from the widget or a script) brings the one window forward, un-minimised.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        AppDelegate.bringWindowForward()
+        return true
+    }
+
+    static func bringWindowForward() {
+        for window in NSApp.windows where window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+    }
 }

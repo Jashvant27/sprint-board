@@ -68,8 +68,9 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project Spr
   Qn year" under it, and puts a copy in the same lane of next week (file and folders created if
   missing). A spilled card sinks to the bottom of its lane and can only be deleted, or followed
   with "Go to Week …".
-- Closing the window quits the app. Every change rewrites the week file atomically and reloads the
-  widget.
+- There is one window. A click on the widget or a script's URL brings it forward (un-minimised if
+  needed) instead of opening another; closing it quits the app. Every change rewrites the week
+  file atomically and reloads the widget.
 
 ## Data
 

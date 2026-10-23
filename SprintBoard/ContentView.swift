@@ -89,6 +89,7 @@ struct ContentView: View {
     /// sprintboard://spill?id=<uuid>|q=<match>[&week=…]                 spill a card over (Scripts/spill-over.sh)
     /// sprintboard://import                                             import Boards files without a week file
     private func handle(_ url: URL) {
+        AppDelegate.bringWindowForward()
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         func param(_ name: String) -> String? {
             items.first { $0.name == name }?.value.flatMap { $0.isEmpty ? nil : $0 }
