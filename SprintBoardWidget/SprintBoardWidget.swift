@@ -94,33 +94,53 @@ struct BoardWidgetView: View {
         }
     }
 
+    /// Fixed heights, so the number of rows that fit is computed exactly: the week header, a lane's
+    /// header, a card row with one line of title (Medium) or two (Large, Extra Large), and the
+    /// spacing between rows. Nothing else is drawn under the rows: a lane that overflows says so
+    /// in its header count ("3/7"), so no card slot goes to a "+N more" line.
+    private enum Metrics {
+        static let weekHeader: CGFloat = 16
+        static let laneHeader: CGFloat = 12
+        static let singleRow: CGFloat = 19
+        static let doubleRow: CGFloat = 32
+        static let rowSpacing: CGFloat = 3
+        static let diagnostics: CGFloat = 12
+    }
+
+    private func rows(in laneHeight: CGFloat, rowHeight: CGFloat) -> Int {
+        max(0, Int((laneHeight - Metrics.laneHeader) / (rowHeight + Metrics.rowSpacing)))
+    }
+
     private func content(_ board: Board) -> some View {
         GeometryReader { geo in
+            let available = geo.size.height - Metrics.weekHeader - 6 - (entry.debugLogging ? Metrics.diagnostics + 6 : 0)
             VStack(alignment: .leading, spacing: 6) {
-                header(board)
+                header(board).frame(height: Metrics.weekHeader)
                 if family == .systemMedium {
                     // Two rows of two lanes.
-                    let rowHeight = (geo.size.height - 22 - 6) / 2
-                    let limit = max(1, Int((rowHeight - 16) / 13))
+                    let laneHeight = (available - 6) / 2
+                    let limit = rows(in: laneHeight, rowHeight: Metrics.singleRow)
                     VStack(spacing: 6) {
                         HStack(alignment: .top, spacing: 8) {
-                            laneView(.todo, board, limit: limit, lines: 1)
-                            laneView(.prog, board, limit: limit, lines: 1)
+                            laneView(.todo, board, limit: limit, rowHeight: Metrics.singleRow, lines: 1)
+                            laneView(.prog, board, limit: limit, rowHeight: Metrics.singleRow, lines: 1)
                         }
+                        .frame(height: laneHeight)
                         HStack(alignment: .top, spacing: 8) {
-                            laneView(.block, board, limit: limit, lines: 1)
-                            laneView(.done, board, limit: limit, lines: 1)
+                            laneView(.block, board, limit: limit, rowHeight: Metrics.singleRow, lines: 1)
+                            laneView(.done, board, limit: limit, rowHeight: Metrics.singleRow, lines: 1)
                         }
+                        .frame(height: laneHeight)
                     }
                 } else {
-                    let limit = max(1, Int((geo.size.height - 22 - 16) / 29))
+                    let limit = rows(in: available, rowHeight: Metrics.doubleRow)
                     HStack(alignment: .top, spacing: 8) {
                         ForEach(Lane.allCases) { lane in
-                            laneView(lane, board, limit: limit, lines: 2)
+                            laneView(lane, board, limit: limit, rowHeight: Metrics.doubleRow, lines: 2)
                         }
                     }
+                    .frame(height: available)
                 }
-                Spacer(minLength: 0)
                 diagnostics
             }
         }
@@ -139,30 +159,28 @@ struct BoardWidgetView: View {
         }
     }
 
-    private func laneView(_ lane: Lane, _ board: Board, limit: Int, lines: Int) -> some View {
+    private func laneView(_ lane: Lane, _ board: Board, limit: Int, rowHeight: CGFloat, lines: Int) -> some View {
         let cards = board.cards(in: lane)
         let shown = Array(cards.prefix(limit))
-        return VStack(alignment: .leading, spacing: 3) {
+        return VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
             HStack(spacing: 4) {
                 Circle().fill(lane.color).frame(width: 6, height: 6)
                 Text(lane.title).font(.system(size: 9, weight: .bold)).tracking(0.4)
-                Text("\(cards.count)").font(.system(size: 9, weight: .semibold).monospacedDigit()).foregroundStyle(.secondary)
+                Text(shown.count < cards.count ? "\(shown.count)/\(cards.count)" : "\(cards.count)")
+                    .font(.system(size: 9, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
             }
+            .frame(height: Metrics.laneHeader)
             ForEach(shown) { card in
-                cardLine(card, lines: lines)
-            }
-            if shown.count < cards.count {
-                Text("+\(cards.count - shown.count) more")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
+                cardLine(card, lines: lines, height: rowHeight)
             }
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private func cardLine(_ card: Card, lines: Int) -> some View {
+    private func cardLine(_ card: Card, lines: Int, height: CGFloat) -> some View {
         HStack(alignment: .top, spacing: 4) {
             if let key = card.jiraKey {
                 Text(key)
@@ -180,6 +198,7 @@ struct BoardWidgetView: View {
         .padding(.horizontal, 5)
         .padding(.vertical, 3)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: height)
         .background(Color.primary.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: 4))
     }
@@ -190,7 +209,8 @@ struct BoardWidgetView: View {
             Text("\(SharedStore.diagnostics) · \(entry.date.formatted(date: .omitted, time: .shortened))")
                 .font(.system(size: 8))
                 .foregroundStyle(.secondary)
-                .lineLimit(2)
+                .lineLimit(1)
+                .frame(height: Metrics.diagnostics)
         }
     }
 }

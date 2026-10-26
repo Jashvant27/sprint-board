@@ -12,8 +12,9 @@ so scripts (and AI coding agents) can read them and move cards from the command 
   up and down a lane to set priority, or use the right-click menu (Move to, Move to top, Move to
   bottom, Spill over to next week).
 - **Widget** (Medium, Large, Extra Large): read-only, the current week's four lanes with counts,
-  Jira keys in a muted mono font, spilled cards struck through. It flips to the new week on
-  Monday by itself; clicking it opens the app on that week.
+  Jira keys in a muted mono font, spilled cards struck through. Every row that fits is a card; a
+  lane with more cards than rows says so in its header count ("3/7"). It flips to the new week
+  on Monday by itself; clicking it opens the app on that week.
 - **Scripts**: move or add cards and spill them over from the shell, through the app's
   `sprintboard://` URL scheme; list a week straight from its file.
 - **Import** from the macOS Boards app's `.boards` files, if you kept your weeks there.
