@@ -95,15 +95,16 @@ struct BoardWidgetView: View {
     }
 
     /// Fixed heights, so the number of rows that fit is computed exactly: the week header, a lane's
-    /// header, a card row with one line of title (Medium) or two (Large, Extra Large), and the
-    /// spacing between rows. Nothing else is drawn under the rows: a lane that overflows says so
-    /// in its header count ("3/7"), so no card slot goes to a "+N more" line.
+    /// header, a card row with one line of title (Medium) or two (Large, Extra Large), the spacing
+    /// between rows, and the footer that lists "+n more" per lane, drawn only when a lane overflows
+    /// (its height leaves the row budget only then, so no card slot goes to it otherwise).
     private enum Metrics {
         static let weekHeader: CGFloat = 16
         static let laneHeader: CGFloat = 12
         static let singleRow: CGFloat = 19
         static let doubleRow: CGFloat = 32
         static let rowSpacing: CGFloat = 3
+        static let footer: CGFloat = 12
         static let diagnostics: CGFloat = 12
     }
 
@@ -111,15 +112,33 @@ struct BoardWidgetView: View {
         max(0, Int((laneHeight - Metrics.laneHeader) / (rowHeight + Metrics.rowSpacing)))
     }
 
+    /// Rows per lane for the space the lanes get in this family.
+    private func limit(for available: CGFloat) -> Int {
+        family == .systemMedium
+            ? rows(in: (available - 6) / 2, rowHeight: Metrics.singleRow)
+            : rows(in: available, rowHeight: Metrics.doubleRow)
+    }
+
+    private func overflow(_ board: Board, limit: Int) -> [(lane: Lane, count: Int)] {
+        Lane.allCases.compactMap { lane in
+            let extra = board.count(in: lane) - limit
+            return extra > 0 ? (lane, extra) : nil
+        }
+    }
+
     private func content(_ board: Board) -> some View {
         GeometryReader { geo in
-            let available = geo.size.height - Metrics.weekHeader - 6 - (entry.debugLogging ? Metrics.diagnostics + 6 : 0)
+            let base = geo.size.height - Metrics.weekHeader - 6 - (entry.debugLogging ? Metrics.diagnostics + 6 : 0)
+            // The footer is needed when a lane overflows even with the footer's space given to
+            // rows; taking it away then can only make the overflow larger, never make it vanish.
+            let footerNeeded = !overflow(board, limit: limit(for: base)).isEmpty
+            let available = base - (footerNeeded ? Metrics.footer + 6 : 0)
+            let limit = limit(for: available)
             VStack(alignment: .leading, spacing: 6) {
                 header(board).frame(height: Metrics.weekHeader)
                 if family == .systemMedium {
                     // Two rows of two lanes.
                     let laneHeight = (available - 6) / 2
-                    let limit = rows(in: laneHeight, rowHeight: Metrics.singleRow)
                     VStack(spacing: 6) {
                         HStack(alignment: .top, spacing: 8) {
                             laneView(.todo, board, limit: limit, rowHeight: Metrics.singleRow, lines: 1)
@@ -133,13 +152,19 @@ struct BoardWidgetView: View {
                         .frame(height: laneHeight)
                     }
                 } else {
-                    let limit = rows(in: available, rowHeight: Metrics.doubleRow)
                     HStack(alignment: .top, spacing: 8) {
                         ForEach(Lane.allCases) { lane in
                             laneView(lane, board, limit: limit, rowHeight: Metrics.doubleRow, lines: 2)
                         }
                     }
                     .frame(height: available)
+                }
+                if footerNeeded {
+                    Text(overflow(board, limit: limit).map { "+\($0.count) more in \($0.lane.shortTitle)" }.joined(separator: " · "))
+                        .font(.system(size: 9).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .frame(height: Metrics.footer)
                 }
                 diagnostics
             }
@@ -166,7 +191,7 @@ struct BoardWidgetView: View {
             HStack(spacing: 4) {
                 Circle().fill(lane.color).frame(width: 6, height: 6)
                 Text(lane.title).font(.system(size: 9, weight: .bold)).tracking(0.4)
-                Text(shown.count < cards.count ? "\(shown.count)/\(cards.count)" : "\(cards.count)")
+                Text("\(cards.count)")
                     .font(.system(size: 9, weight: .semibold).monospacedDigit())
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
