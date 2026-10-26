@@ -96,8 +96,10 @@ struct BoardWidgetView: View {
 
     /// Fixed heights, so the number of rows that fit is computed exactly: the week header, a lane's
     /// header, a card row with one line of title (Medium) or two (Large, Extra Large), the spacing
-    /// between rows, and the footer that lists "+n more" per lane, drawn only when a lane overflows
-    /// (its height leaves the row budget only then, so no card slot goes to it otherwise).
+    /// between rows, and the footer with "+n more" under each lane that overflows, drawn only when
+    /// one does (its height leaves the row budget only then, so no card slot goes to it otherwise).
+    /// Medium lays the lanes out two by two, where a footer line cannot align with both rows, so
+    /// there the "+n more" sits at the right end of the lane's own header instead.
     private enum Metrics {
         static let weekHeader: CGFloat = 16
         static let laneHeader: CGFloat = 12
@@ -131,7 +133,7 @@ struct BoardWidgetView: View {
             let base = geo.size.height - Metrics.weekHeader - 6 - (entry.debugLogging ? Metrics.diagnostics + 6 : 0)
             // The footer is needed when a lane overflows even with the footer's space given to
             // rows; taking it away then can only make the overflow larger, never make it vanish.
-            let footerNeeded = !overflow(board, limit: limit(for: base)).isEmpty
+            let footerNeeded = family != .systemMedium && !overflow(board, limit: limit(for: base)).isEmpty
             let available = base - (footerNeeded ? Metrics.footer + 6 : 0)
             let limit = limit(for: available)
             VStack(alignment: .leading, spacing: 6) {
@@ -160,11 +162,17 @@ struct BoardWidgetView: View {
                     .frame(height: available)
                 }
                 if footerNeeded {
-                    Text(overflow(board, limit: limit).map { "+\($0.count) more in \($0.lane.shortTitle)" }.joined(separator: " · "))
-                        .font(.system(size: 9).monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .frame(height: Metrics.footer)
+                    // One column per lane, aligned with the lanes above.
+                    HStack(alignment: .top, spacing: 8) {
+                        ForEach(Lane.allCases) { lane in
+                            Text(moreLabel(board.count(in: lane) - limit))
+                                .font(.system(size: 9).monospacedDigit())
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .frame(height: Metrics.footer)
                 }
                 diagnostics
             }
@@ -184,6 +192,8 @@ struct BoardWidgetView: View {
         }
     }
 
+    private func moreLabel(_ extra: Int) -> String { extra > 0 ? "+\(extra) more" : "" }
+
     private func laneView(_ lane: Lane, _ board: Board, limit: Int, rowHeight: CGFloat, lines: Int) -> some View {
         let cards = board.cards(in: lane)
         let shown = Array(cards.prefix(limit))
@@ -195,6 +205,12 @@ struct BoardWidgetView: View {
                     .font(.system(size: 9, weight: .semibold).monospacedDigit())
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
+                if family == .systemMedium {
+                    Text(moreLabel(cards.count - shown.count))
+                        .font(.system(size: 9).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
             .frame(height: Metrics.laneHeader)
             ForEach(shown) { card in
